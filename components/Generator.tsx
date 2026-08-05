@@ -10,6 +10,7 @@ import { parseGpx, formatDuration, type ParsedRoute } from "@/lib/gpx";
 import { boundsOf, type BBox } from "@/lib/geo";
 import { buildModel, type BuildOptions, type Heightmap, type OsmData } from "@/lib/mesh";
 import { downloadSTL } from "@/lib/stl";
+import { type StravaActivity } from "@/lib/strava";
 
 const Viewer3D = dynamic(() => import("./Viewer3D"), { ssr: false });
 
@@ -34,26 +35,79 @@ export default function Generator() {
   const [athlete, setAthlete] = useState("");
   const [eventDate, setEventDate] = useState("");
 
+  // Strava
+  const [stravaConnected, setStravaConnected] = useState(false);
+  const [stravaActivities, setStravaActivities] = useState<StravaActivity[] | null>(null);
+  const [stravaBusy, setStravaBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+
   // Cache dos dados buscados (evita refetch ao mexer nos sliders)
   const bboxRef = useRef<BBox | null>(null);
   const heightRef = useRef<Heightmap | null>(null);
   const osmRef = useRef<OsmData | null>(null);
   const dataKeyRef = useRef<string>("");
 
-  const onFile = async (file: File) => {
+  // Aplica uma rota (vinda de GPX ou do Strava) e reseta os caches de dados.
+  const applyRoute = (parsed: ParsedRoute) => {
     setError(null); setWarning(null); setGroup(null);
     heightRef.current = null; osmRef.current = null; dataKeyRef.current = "";
+    setRoute(parsed);
+    bboxRef.current = boundsOf(parsed.points);
+    if (parsed.stats.name) setEventName(parsed.stats.name);
+  };
+
+  const onFile = async (file: File) => {
     try {
-      const text = await file.text();
-      const parsed = parseGpx(text);
-      setRoute(parsed);
-      bboxRef.current = boundsOf(parsed.points);
-      if (parsed.stats.name) setEventName(parsed.stats.name);
+      applyRoute(parseGpx(await file.text()));
     } catch (e) {
       setRoute(null);
       setError(e instanceof Error ? e.message : "Falha ao ler o GPX.");
     }
   };
+
+  // Carrega o estado de conexão + atividades do Strava.
+  const loadStrava = useCallback(async () => {
+    setStravaBusy(true);
+    try {
+      const res = await fetch("/api/strava/activities");
+      if (res.status === 401) {
+        setStravaConnected(false);
+        setStravaActivities(null);
+        return;
+      }
+      const data = await res.json();
+      setStravaConnected(true);
+      setStravaActivities(data.activities || []);
+    } catch {
+      /* silencioso: mantém o fluxo por GPX disponível */
+    } finally {
+      setStravaBusy(false);
+    }
+  }, []);
+
+  const pickStrava = async (id: number) => {
+    setStravaBusy(true); setError(null);
+    try {
+      const res = await fetch(`/api/strava/activity?id=${id}`);
+      if (res.status === 401) { setStravaConnected(false); throw new Error("Sessão do Strava expirada. Conecte novamente."); }
+      if (!res.ok) throw new Error("Falha ao carregar a rota do Strava.");
+      applyRoute((await res.json()) as ParsedRoute);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Falha no Strava.");
+    } finally {
+      setStravaBusy(false);
+    }
+  };
+
+  // Ao montar: verifica retorno do OAuth e carrega atividades se já conectado.
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search).get("strava");
+    if (p === "conectado") setNotice("Conta do Strava conectada.");
+    else if (p === "erro") setNotice("Não foi possível conectar ao Strava. Tente novamente.");
+    else if (p === "nao_configurado") setNotice("Integração com Strava ainda não configurada neste ambiente.");
+    if (p) window.history.replaceState(null, "", "/criar");
+    loadStrava();
+  }, [loadStrava]);
 
   const ensureData = useCallback(async () => {
     if (!route || !bboxRef.current) return;
@@ -136,7 +190,7 @@ export default function Generator() {
           <div className="absolute inset-0 grid place-items-center text-center p-8 text-white/50">
             <div>
               <p className="text-lg font-medium text-white/70">Pré-visualização 3D</p>
-              <p className="mt-2 text-sm">Suba um arquivo GPX e clique em “Gerar modelo 3D”.</p>
+              <p className="mt-2 text-sm">Suba um GPX ou conecte o Strava, escolha a rota e clique em “Gerar modelo 3D”.</p>
             </div>
           </div>
         )}
@@ -159,6 +213,47 @@ export default function Generator() {
           />
         </div>
 
+        {/* Strava */}
+        <div>
+          <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-white/30 mb-2">
+            <span className="h-px flex-1 bg-white/10" />ou<span className="h-px flex-1 bg-white/10" />
+          </div>
+          {!stravaConnected ? (
+            <a
+              href="/api/strava/auth"
+              className="flex items-center justify-center gap-2 w-full rounded-lg bg-[#fc4c02] hover:brightness-110 px-4 py-2.5 font-medium text-white transition"
+            >
+              Conectar com Strava
+            </a>
+          ) : (
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-sm font-medium">Suas atividades no Strava</span>
+                <button onClick={loadStrava} disabled={stravaBusy}
+                  className="text-xs text-white/50 hover:text-white disabled:opacity-50">Atualizar</button>
+              </div>
+              <div className="max-h-52 overflow-y-auto rounded-lg border border-white/10 divide-y divide-white/5">
+                {stravaBusy && !stravaActivities ? (
+                  <div className="px-3 py-3 text-xs text-white/40">Carregando…</div>
+                ) : stravaActivities && stravaActivities.length > 0 ? (
+                  stravaActivities.map((a) => (
+                    <button key={a.id} onClick={() => pickStrava(a.id)} disabled={stravaBusy}
+                      className="w-full text-left px-3 py-2 hover:bg-white/5 disabled:opacity-50">
+                      <div className="text-sm truncate">{a.name}</div>
+                      <div className="text-[11px] text-white/40">
+                        {a.type} · {a.distanceKm.toFixed(1)} km · {new Date(a.date).toLocaleDateString("pt-BR")}
+                      </div>
+                    </button>
+                  ))
+                ) : (
+                  <div className="px-3 py-3 text-xs text-white/40">Nenhuma atividade com GPS encontrada.</div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {notice && <p className="text-xs text-white/60 bg-white/5 rounded-lg p-2">{notice}</p>}
         {error && <p className="text-sm text-red-400 bg-red-500/10 rounded-lg p-3">{error}</p>}
 
         {stats && (
