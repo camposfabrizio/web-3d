@@ -1,0 +1,280 @@
+"use client";
+
+// Orquestra o fluxo do gerador: upload de GPX -> busca dados (elevação/OSM) ->
+// monta a malha 3D -> preview interativo -> personalização -> export STL / pedido.
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
+import * as THREE from "three";
+import { parseGpx, formatDuration, type ParsedRoute } from "@/lib/gpx";
+import { boundsOf, type BBox } from "@/lib/geo";
+import { buildModel, type BuildOptions, type Heightmap, type OsmData } from "@/lib/mesh";
+import { downloadSTL } from "@/lib/stl";
+
+const Viewer3D = dynamic(() => import("./Viewer3D"), { ssr: false });
+
+const DEFAULTS: BuildOptions = {
+  mode: "terrain",
+  sizeMM: 120,
+  baseHeightMM: 4,
+  exaggeration: 3,
+  routeWidthMM: 2,
+  routeHeightMM: 1.2,
+};
+
+export default function Generator() {
+  const [route, setRoute] = useState<ParsedRoute | null>(null);
+  const [opts, setOpts] = useState<BuildOptions>(DEFAULTS);
+  const [group, setGroup] = useState<THREE.Group | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
+
+  const [eventName, setEventName] = useState("");
+  const [athlete, setAthlete] = useState("");
+  const [eventDate, setEventDate] = useState("");
+
+  // Cache dos dados buscados (evita refetch ao mexer nos sliders)
+  const bboxRef = useRef<BBox | null>(null);
+  const heightRef = useRef<Heightmap | null>(null);
+  const osmRef = useRef<OsmData | null>(null);
+  const dataKeyRef = useRef<string>("");
+
+  const onFile = async (file: File) => {
+    setError(null); setWarning(null); setGroup(null);
+    heightRef.current = null; osmRef.current = null; dataKeyRef.current = "";
+    try {
+      const text = await file.text();
+      const parsed = parseGpx(text);
+      setRoute(parsed);
+      bboxRef.current = boundsOf(parsed.points);
+      if (parsed.stats.name) setEventName(parsed.stats.name);
+    } catch (e) {
+      setRoute(null);
+      setError(e instanceof Error ? e.message : "Falha ao ler o GPX.");
+    }
+  };
+
+  const ensureData = useCallback(async () => {
+    if (!route || !bboxRef.current) return;
+    const bbox = bboxRef.current;
+    const key = `${opts.mode}:${bbox.minLng.toFixed(4)},${bbox.minLat.toFixed(4)}`;
+    if (key === dataKeyRef.current) return; // já temos os dados
+
+    if (opts.mode === "terrain") {
+      const res = await fetch("/api/elevation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bbox, grid: 150 }),
+      });
+      if (!res.ok) throw new Error("Falha ao buscar elevação.");
+      heightRef.current = (await res.json()) as Heightmap;
+    } else {
+      const res = await fetch("/api/osm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bbox }),
+      });
+      if (!res.ok) throw new Error("Falha ao buscar feições do mapa.");
+      const data = await res.json();
+      if (data.warning) setWarning(data.warning); else setWarning(null);
+      osmRef.current = data as OsmData;
+    }
+    dataKeyRef.current = key;
+  }, [route, opts.mode]);
+
+  const rebuild = useCallback(() => {
+    if (!route) return;
+    const bbox = bboxRef.current!;
+    const g = buildModel(
+      route.points,
+      bbox,
+      opts,
+      opts.mode === "terrain" ? heightRef.current : null,
+      opts.mode === "urban" ? osmRef.current : null
+    );
+    setGroup(g);
+  }, [route, opts]);
+
+  const generate = async () => {
+    if (!route) return;
+    setLoading(true); setError(null);
+    try {
+      await ensureData();
+      rebuild();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Falha ao gerar o modelo.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Reconstrói localmente ao mexer nos sliders (sem refetch), se já há dados
+  useEffect(() => {
+    if (group && dataKeyRef.current) rebuild();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [opts.sizeMM, opts.baseHeightMM, opts.exaggeration, opts.routeWidthMM, opts.routeHeightMM]);
+
+  const set = (patch: Partial<BuildOptions>) => setOpts((o) => ({ ...o, ...patch }));
+
+  const download = () => {
+    if (!group) return;
+    const slug = (eventName || route?.stats.name || "rota")
+      .normalize("NFD").replace(/[^\w]+/g, "-").toLowerCase().slice(0, 40);
+    downloadSTL(group, `trofeu-${slug}`);
+  };
+
+  const stats = route?.stats;
+
+  return (
+    <div className="grid lg:grid-cols-[1fr_360px] gap-6 h-full">
+      {/* Preview */}
+      <div className="relative rounded-xl overflow-hidden border border-white/10 bg-[#0f1420] min-h-[420px] lg:min-h-0">
+        {group ? (
+          <Viewer3D object={group} />
+        ) : (
+          <div className="absolute inset-0 grid place-items-center text-center p-8 text-white/50">
+            <div>
+              <p className="text-lg font-medium text-white/70">Pré-visualização 3D</p>
+              <p className="mt-2 text-sm">Suba um arquivo GPX e clique em “Gerar modelo 3D”.</p>
+            </div>
+          </div>
+        )}
+        {loading && (
+          <div className="absolute inset-0 grid place-items-center bg-black/50 backdrop-blur-sm">
+            <p className="text-white/90 animate-pulse">Gerando modelo…</p>
+          </div>
+        )}
+      </div>
+
+      {/* Painel */}
+      <div className="space-y-5 overflow-y-auto">
+        <div>
+          <label className="block text-sm font-medium mb-2">Arquivo GPX (Strava/Garmin)</label>
+          <input
+            type="file"
+            accept=".gpx,application/gpx+xml,text/xml"
+            onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])}
+            className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-orange-500 file:px-4 file:py-2 file:text-white file:font-medium hover:file:bg-orange-600 file:cursor-pointer"
+          />
+        </div>
+
+        {error && <p className="text-sm text-red-400 bg-red-500/10 rounded-lg p-3">{error}</p>}
+
+        {stats && (
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <Stat label="Distância" value={`${stats.distanceKm.toFixed(1)} km`} />
+            <Stat label="Tempo" value={formatDuration(stats.durationSec) ?? "—"} />
+            <Stat label="Ganho" value={stats.ascentM ? `${stats.ascentM} m` : "—"} />
+          </div>
+        )}
+
+        {route && (
+          <>
+            {/* Modo */}
+            <div>
+              <label className="block text-sm font-medium mb-2">Estilo da peça</label>
+              <div className="grid grid-cols-2 gap-2">
+                <ModeBtn active={opts.mode === "terrain"} onClick={() => set({ mode: "terrain" })}
+                  title="Terreno 3D" desc="trilha / serra" />
+                <ModeBtn active={opts.mode === "urban"} onClick={() => set({ mode: "urban" })}
+                  title="Mapa urbano" desc="ruas / praia" />
+              </div>
+              <p className="mt-1 text-xs text-white/40">
+                {opts.mode === "terrain"
+                  ? "Relevo real do terreno com a rota em cima."
+                  : "Vias, água e áreas verdes do mapa, com a rota destacada — ideal p/ litoral plano."}
+              </p>
+            </div>
+
+            <Slider label="Tamanho (mm)" min={60} max={200} step={5}
+              value={opts.sizeMM} onChange={(v) => set({ sizeMM: v })} />
+            <Slider label="Espessura da base (mm)" min={2} max={10} step={0.5}
+              value={opts.baseHeightMM} onChange={(v) => set({ baseHeightMM: v })} />
+            {opts.mode === "terrain" && (
+              <Slider label="Exagero vertical" min={1} max={8} step={0.5}
+                value={opts.exaggeration} onChange={(v) => set({ exaggeration: v })} />
+            )}
+            <Slider label="Espessura da rota (mm)" min={1} max={5} step={0.25}
+              value={opts.routeWidthMM} onChange={(v) => set({ routeWidthMM: v })} />
+
+            <button onClick={generate} disabled={loading}
+              className="w-full rounded-lg bg-orange-500 hover:bg-orange-600 disabled:opacity-50 px-4 py-2.5 font-medium text-white transition">
+              {group ? "Atualizar modelo 3D" : "Gerar modelo 3D"}
+            </button>
+
+            {warning && <p className="text-xs text-amber-400 bg-amber-500/10 rounded-lg p-2">{warning}</p>}
+
+            {/* Personalização (metadado do pedido) */}
+            <div className="pt-2 border-t border-white/10 space-y-3">
+              <p className="text-sm font-medium">Personalização</p>
+              <Field label="Nome do evento" value={eventName} onChange={setEventName} placeholder="Ex.: Maratona de Navegantes" />
+              <Field label="Atleta" value={athlete} onChange={setAthlete} placeholder="Seu nome" />
+              <Field label="Data" value={eventDate} onChange={setEventDate} placeholder="dd/mm/aaaa" />
+            </div>
+
+            {group && (
+              <div className="space-y-2 pt-2">
+                <button onClick={download}
+                  className="w-full rounded-lg border border-white/20 hover:bg-white/5 px-4 py-2.5 font-medium transition">
+                  Baixar STL
+                </button>
+                <button
+                  onClick={() => alert("Checkout em breve — o pedido será enviado para produção.")}
+                  className="w-full rounded-lg bg-emerald-500 hover:bg-emerald-600 px-4 py-2.5 font-medium text-white transition">
+                  Pedir impresso e receber em casa
+                </button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg bg-white/5 py-2">
+      <div className="text-sm font-semibold">{value}</div>
+      <div className="text-[11px] text-white/50">{label}</div>
+    </div>
+  );
+}
+
+function ModeBtn({ active, onClick, title, desc }: { active: boolean; onClick: () => void; title: string; desc: string }) {
+  return (
+    <button onClick={onClick}
+      className={`rounded-lg border px-3 py-2 text-left transition ${
+        active ? "border-orange-500 bg-orange-500/10" : "border-white/15 hover:bg-white/5"
+      }`}>
+      <div className="text-sm font-medium">{title}</div>
+      <div className="text-[11px] text-white/50">{desc}</div>
+    </button>
+  );
+}
+
+function Slider({ label, min, max, step, value, onChange }:
+  { label: string; min: number; max: number; step: number; value: number; onChange: (v: number) => void }) {
+  return (
+    <div>
+      <div className="flex justify-between text-sm mb-1">
+        <span>{label}</span><span className="text-white/50">{value}</span>
+      </div>
+      <input type="range" min={min} max={max} step={step} value={value}
+        onChange={(e) => onChange(parseFloat(e.target.value))}
+        className="w-full accent-orange-500" />
+    </div>
+  );
+}
+
+function Field({ label, value, onChange, placeholder }:
+  { label: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
+  return (
+    <div>
+      <label className="block text-xs text-white/50 mb-1">{label}</label>
+      <input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
+        className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm outline-none focus:border-orange-500" />
+    </div>
+  );
+}
