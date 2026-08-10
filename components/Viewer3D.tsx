@@ -10,7 +10,7 @@ export default function Viewer3D({ object }: { object: THREE.Group | null }) {
   return (
     <Canvas
       shadows
-      camera={{ position: [90, 90, 120], fov: 40 }}
+      camera={{ position: [40, 130, 85], fov: 40 }}
       style={{ width: "100%", height: "100%" }}
     >
       <color attach="background" args={["#0f1420"]} />

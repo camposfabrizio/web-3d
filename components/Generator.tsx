@@ -8,19 +8,44 @@ import dynamic from "next/dynamic";
 import * as THREE from "three";
 import { parseGpx, formatDuration, type ParsedRoute } from "@/lib/gpx";
 import { boundsOf, type BBox } from "@/lib/geo";
-import { buildModel, type BuildOptions, type Heightmap, type OsmData } from "@/lib/mesh";
+import {
+  buildModel,
+  DEFAULT_COLORS,
+  type BuildOptions,
+  type ElementColors,
+  type Heightmap,
+  type OsmData,
+} from "@/lib/mesh";
 import { downloadSTL } from "@/lib/stl";
 import { type StravaActivity } from "@/lib/strava";
 
 const Viewer3D = dynamic(() => import("./Viewer3D"), { ssr: false });
+const MapPreview = dynamic(() => import("./MapPreview"), { ssr: false });
 
 const DEFAULTS: BuildOptions = {
   mode: "terrain",
   sizeMM: 120,
   baseHeightMM: 4,
   exaggeration: 3,
-  routeWidthMM: 2,
-  routeHeightMM: 1.2,
+  routeWidthMM: 2.5,
+  routeHeightMM: 1.4,
+  colors: DEFAULT_COLORS,
+};
+
+// Elementos coloríveis por modo (para o painel de cores)
+const COLOR_FIELDS: Record<"terrain" | "urban", { key: keyof ElementColors; label: string }[]> = {
+  terrain: [
+    { key: "terrain", label: "Terreno" },
+    { key: "route", label: "Rota" },
+  ],
+  urban: [
+    { key: "base", label: "Base" },
+    { key: "roads", label: "Vias" },
+    { key: "building", label: "Quadras" },
+    { key: "green", label: "Áreas verdes" },
+    { key: "water", label: "Água" },
+    { key: "route", label: "Rota" },
+  ],
 };
 
 export default function Generator() {
@@ -52,7 +77,7 @@ export default function Generator() {
     setError(null); setWarning(null); setGroup(null);
     heightRef.current = null; osmRef.current = null; dataKeyRef.current = "";
     setRoute(parsed);
-    bboxRef.current = boundsOf(parsed.points);
+    bboxRef.current = boundsOf(parsed.points, 0.6); // margem p/ o hexágono cobrir a área
     if (parsed.stats.name) setEventName(parsed.stats.name);
   };
 
@@ -163,13 +188,15 @@ export default function Generator() {
     }
   };
 
-  // Reconstrói localmente ao mexer nos sliders (sem refetch), se já há dados
+  // Reconstrói localmente ao mexer nos sliders/cores (sem refetch), se já há dados
   useEffect(() => {
     if (group && dataKeyRef.current) rebuild();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [opts.sizeMM, opts.baseHeightMM, opts.exaggeration, opts.routeWidthMM, opts.routeHeightMM]);
+  }, [opts.sizeMM, opts.baseHeightMM, opts.exaggeration, opts.routeWidthMM, opts.routeHeightMM, opts.colors]);
 
   const set = (patch: Partial<BuildOptions>) => setOpts((o) => ({ ...o, ...patch }));
+  const setColor = (key: keyof ElementColors, value: string) =>
+    setOpts((o) => ({ ...o, colors: { ...o.colors, [key]: value } }));
 
   const download = () => {
     if (!group) return;
@@ -186,17 +213,22 @@ export default function Generator() {
       <div className="relative rounded-xl overflow-hidden border border-white/10 bg-[#0f1420] min-h-[420px] lg:min-h-0">
         {group ? (
           <Viewer3D object={group} />
+        ) : route ? (
+          <MapPreview route={route} routeColor={opts.colors.route} />
         ) : (
           <div className="absolute inset-0 grid place-items-center text-center p-8 text-white/50">
             <div>
-              <p className="text-lg font-medium text-white/70">Pré-visualização 3D</p>
+              <p className="text-lg font-medium text-white/70">Pré-visualização</p>
               <p className="mt-2 text-sm">Suba um GPX ou conecte o Strava, escolha a rota e clique em “Gerar modelo 3D”.</p>
             </div>
           </div>
         )}
         {loading && (
-          <div className="absolute inset-0 grid place-items-center bg-black/50 backdrop-blur-sm">
-            <p className="text-white/90 animate-pulse">Gerando modelo…</p>
+          <div className="absolute inset-0 grid place-items-center bg-black/60 backdrop-blur-sm">
+            <div className="flex flex-col items-center gap-3">
+              <div className="h-8 w-8 rounded-full border-2 border-white/20 border-t-orange-500 animate-spin" />
+              <p className="text-white/80 text-sm">Gerando modelo 3D…</p>
+            </div>
           </div>
         )}
       </div>
@@ -292,6 +324,24 @@ export default function Generator() {
             )}
             <Slider label="Espessura da rota (mm)" min={1} max={5} step={0.25}
               value={opts.routeWidthMM} onChange={(v) => set({ routeWidthMM: v })} />
+
+            {/* Cores por elemento (impressoras costumam trabalhar com até 4 cores) */}
+            <div>
+              <label className="block text-sm font-medium mb-2">Cores</label>
+              <div className="grid grid-cols-2 gap-2">
+                {COLOR_FIELDS[opts.mode].map((f) => (
+                  <label key={f.key} className="flex items-center gap-2 rounded-lg border border-white/10 px-2 py-1.5 cursor-pointer">
+                    <input type="color" value={opts.colors[f.key]}
+                      onChange={(e) => setColor(f.key, e.target.value)}
+                      className="h-6 w-6 rounded cursor-pointer bg-transparent border-0 p-0" />
+                    <span className="text-xs text-white/70">{f.label}</span>
+                  </label>
+                ))}
+              </div>
+              <p className="mt-1 text-[11px] text-white/40">
+                Cada elemento é uma peça separada — atribua uma cor de filamento a cada um (até 4 na maioria das impressoras).
+              </p>
+            </div>
 
             <button onClick={generate} disabled={loading}
               className="w-full rounded-lg bg-orange-500 hover:bg-orange-600 disabled:opacity-50 px-4 py-2.5 font-medium text-white transition">
