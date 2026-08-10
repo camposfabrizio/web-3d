@@ -11,9 +11,11 @@ import { boundsOf, type BBox } from "@/lib/geo";
 import {
   buildModel,
   DEFAULT_COLORS,
+  DEFAULT_FEATURES,
   type BuildOptions,
   type ElementColors,
   type Heightmap,
+  type MapFeatures,
   type OsmData,
 } from "@/lib/mesh";
 import { downloadSTL } from "@/lib/stl";
@@ -30,7 +32,30 @@ const DEFAULTS: BuildOptions = {
   routeWidthMM: 2.5,
   routeHeightMM: 1.4,
   colors: DEFAULT_COLORS,
+  features: DEFAULT_FEATURES,
 };
+
+const FEATURE_LABELS: { key: keyof MapFeatures; label: string }[] = [
+  { key: "roads", label: "Vias" },
+  { key: "buildings", label: "Quadras" },
+  { key: "green", label: "Áreas verdes" },
+  { key: "water", label: "Água" },
+];
+
+// Conta cores de impressão distintas entre os elementos ativos no modo atual.
+function countPrintColors(o: BuildOptions): number {
+  const active: string[] = [];
+  if (o.mode === "terrain") {
+    active.push(o.colors.terrain, o.colors.route);
+  } else {
+    active.push(o.colors.base, o.colors.route);
+    if (o.features.roads) active.push(o.colors.roads);
+    if (o.features.buildings) active.push(o.colors.building);
+    if (o.features.green) active.push(o.colors.green);
+    if (o.features.water) active.push(o.colors.water);
+  }
+  return new Set(active.map((c) => c.toLowerCase())).size;
+}
 
 // Elementos coloríveis por modo (para o painel de cores)
 const COLOR_FIELDS: Record<"terrain" | "urban", { key: keyof ElementColors; label: string }[]> = {
@@ -192,11 +217,13 @@ export default function Generator() {
   useEffect(() => {
     if (group && dataKeyRef.current) rebuild();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [opts.sizeMM, opts.baseHeightMM, opts.exaggeration, opts.routeWidthMM, opts.routeHeightMM, opts.colors]);
+  }, [opts.sizeMM, opts.baseHeightMM, opts.exaggeration, opts.routeWidthMM, opts.routeHeightMM, opts.colors, opts.features]);
 
   const set = (patch: Partial<BuildOptions>) => setOpts((o) => ({ ...o, ...patch }));
   const setColor = (key: keyof ElementColors, value: string) =>
     setOpts((o) => ({ ...o, colors: { ...o.colors, [key]: value } }));
+  const toggleFeature = (key: keyof MapFeatures) =>
+    setOpts((o) => ({ ...o, features: { ...o.features, [key]: !o.features[key] } }));
 
   const download = () => {
     if (!group) return;
@@ -314,6 +341,22 @@ export default function Generator() {
               </p>
             </div>
 
+            {/* Feições do mapa (liga/desliga) — modo urbano */}
+            {opts.mode === "urban" && (
+              <div>
+                <label className="block text-sm font-medium mb-2">Feições do mapa</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {FEATURE_LABELS.map((f) => (
+                    <label key={f.key} className="flex items-center gap-2 rounded-lg border border-white/10 px-2 py-1.5 cursor-pointer text-sm">
+                      <input type="checkbox" checked={opts.features[f.key]}
+                        onChange={() => toggleFeature(f.key)} className="accent-orange-500" />
+                      <span className="text-white/70">{f.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <Slider label="Tamanho (mm)" min={60} max={200} step={5}
               value={opts.sizeMM} onChange={(v) => set({ sizeMM: v })} />
             <Slider label="Espessura da base (mm)" min={2} max={10} step={0.5}
@@ -339,8 +382,18 @@ export default function Generator() {
                 ))}
               </div>
               <p className="mt-1 text-[11px] text-white/40">
-                Cada elemento é uma peça separada — atribua uma cor de filamento a cada um (até 4 na maioria das impressoras).
+                Cada elemento é uma peça separada — atribua uma cor de filamento a cada um.
               </p>
+              {(() => {
+                const n = countPrintColors(opts);
+                const over = n > 4;
+                return (
+                  <p className={`mt-2 text-xs rounded-lg p-2 ${over ? "bg-amber-500/10 text-amber-400" : "bg-white/5 text-white/60"}`}>
+                    Total de cores: <span className="font-semibold">{n}</span>
+                    {over ? " — acima de 4; a maioria das impressoras troca de filamento (ou use AMS/multicolor)." : " — cabe em impressoras de até 4 cores."}
+                  </p>
+                );
+              })()}
             </div>
 
             <button onClick={generate} disabled={loading}

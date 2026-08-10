@@ -5,8 +5,15 @@
 // (Os tiles do OSM carregam no navegador do usuário — em produção.)
 
 import "leaflet/dist/leaflet.css";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { MapContainer, TileLayer, Polyline, Polygon, useMap } from "react-leaflet";
+
+const BASEMAPS = {
+  mapa: { label: "Mapa", url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png", attribution: "&copy; OpenStreetMap" },
+  satelite: { label: "Satélite", url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", attribution: "&copy; Esri" },
+  topo: { label: "Topo", url: "https://tile.opentopomap.org/{z}/{x}/{y}.png", attribution: "&copy; OpenTopoMap" },
+} as const;
+type BaseKey = keyof typeof BASEMAPS;
 import type { LatLngExpression, LatLngBoundsExpression } from "leaflet";
 import type { ParsedRoute } from "@/lib/gpx";
 
@@ -57,14 +64,22 @@ export default function MapPreview({ route, routeColor }: { route: ParsedRoute; 
     return { line, hex, outer, center: [cLat, cLng] as LatLngExpression, bounds };
   }, [route]);
 
+  const [base, setBase] = useState<BaseKey>("mapa");
+
   return (
     <div className="absolute inset-0">
       <MapContainer center={center} zoom={14} scrollWheelZoom className="h-full w-full" style={{ background: "#0f1420" }}>
-        <TileLayer
-          url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-          attribution='&copy; OpenStreetMap'
-          maxZoom={19}
-        />
+        <TileLayer key={base} url={BASEMAPS[base].url} attribution={BASEMAPS[base].attribution} maxZoom={19} />
+        <div className="leaflet-top leaflet-right">
+          <div className="leaflet-control leaflet-bar flex overflow-hidden text-[11px]">
+            {(Object.keys(BASEMAPS) as BaseKey[]).map((k) => (
+              <button key={k} onClick={() => setBase(k)}
+                className={`px-2 py-1 ${base === k ? "bg-orange-500 text-white" : "bg-white text-gray-700 hover:bg-gray-100"}`}>
+                {BASEMAPS[k].label}
+              </button>
+            ))}
+          </div>
+        </div>
         {/* máscara: escurece fora do hexágono */}
         <Polygon positions={[outer, hex]} pathOptions={{ color: "transparent", fillColor: "#0b0f17", fillOpacity: 0.55, stroke: false }} />
         {/* moldura hexagonal */}

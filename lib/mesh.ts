@@ -41,6 +41,16 @@ export const DEFAULT_COLORS: ElementColors = {
   building: "#b9a488",
 };
 
+/** Feições do mapa que o cliente pode ligar/desligar (modo urbano). */
+export type MapFeatures = {
+  roads: boolean;
+  water: boolean;
+  green: boolean;
+  buildings: boolean;
+};
+
+export const DEFAULT_FEATURES: MapFeatures = { roads: true, water: true, green: true, buildings: true };
+
 export type BuildOptions = {
   mode: "terrain" | "urban";
   sizeMM: number;        // largura da peça (vértice a vértice do hexágono)
@@ -49,6 +59,7 @@ export type BuildOptions = {
   routeWidthMM: number;  // espessura do cordão da rota
   routeHeightMM: number; // quanto a rota se eleva sobre a superfície
   colors: ElementColors;
+  features: MapFeatures;
 };
 
 type P2 = { x: number; z: number };
@@ -360,12 +371,13 @@ export function buildModel(
   } else {
     group.add(buildHexBase(hex, opts));
     const buildingH = Math.max(1.2, opts.sizeMM / 70);
-    const hasBuildings = Boolean(osm && osm.buildings.length);
+    const hasBuildings = Boolean(osm && osm.buildings.length && opts.features.buildings);
     if (osm) {
-      const green = buildAreas(osm.green, hex, layout, opts.baseHeightMM + 0.5, opts.colors.green, "verde");
-      const water = buildAreas(osm.water, hex, layout, opts.baseHeightMM + 0.3, opts.colors.water, "agua");
-      const roads = buildRoads(osm.roads, hex, layout, opts);
-      const bld = buildBuildings(osm.buildings, hex, layout, opts, buildingH);
+      const f = opts.features;
+      const green = f.green ? buildAreas(osm.green, hex, layout, opts.baseHeightMM + 0.5, opts.colors.green, "verde") : null;
+      const water = f.water ? buildAreas(osm.water, hex, layout, opts.baseHeightMM + 0.3, opts.colors.water, "agua") : null;
+      const roads = f.roads ? buildRoads(osm.roads, hex, layout, opts) : null;
+      const bld = f.buildings ? buildBuildings(osm.buildings, hex, layout, opts, buildingH) : null;
       for (const m of [green, water, bld, roads]) if (m) group.add(m);
     }
     // rota elevada acima das quadras para ser o elemento em destaque
