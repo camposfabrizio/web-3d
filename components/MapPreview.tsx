@@ -1,60 +1,80 @@
 "use client";
 
-// Preview 2D imediato da rota, com a moldura hexagonal de enquadramento —
-// mostrado assim que o GPX/Strava é carregado, antes de gerar o modelo 3D.
+// Preview 2D estilo Leaflet: mapa OSM de fundo + rota traçada + máscara
+// hexagonal de enquadramento. Mostrado assim que a rota é carregada.
+// (Os tiles do OSM carregam no navegador do usuário — em produção.)
 
-import { useMemo } from "react";
+import "leaflet/dist/leaflet.css";
+import { useEffect, useMemo } from "react";
+import { MapContainer, TileLayer, Polyline, Polygon, useMap } from "react-leaflet";
+import type { LatLngExpression, LatLngBoundsExpression } from "leaflet";
 import type { ParsedRoute } from "@/lib/gpx";
 
-const SIZE = 400;
-const R = SIZE / 2 - 12; // raio do hexágono no SVG
+const M_PER_DEG = 111320;
 
-function hexPath(cx: number, cy: number, r: number) {
-  const pts = [];
-  for (let k = 0; k < 6; k++) {
-    const a = (Math.PI / 180) * (60 * k + 30);
-    pts.push(`${cx + r * Math.cos(a)},${cy + r * Math.sin(a)}`);
-  }
-  return `M${pts.join("L")}Z`;
+function FitBounds({ bounds }: { bounds: LatLngBoundsExpression }) {
+  const map = useMap();
+  useEffect(() => {
+    map.fitBounds(bounds, { padding: [16, 16] });
+  }, [map, bounds]);
+  return null;
 }
 
 export default function MapPreview({ route, routeColor }: { route: ParsedRoute; routeColor: string }) {
-  const { d, hex } = useMemo(() => {
+  const { line, hex, outer, center, bounds } = useMemo(() => {
     const pts = route.points;
-    let minLng = Infinity, maxLng = -Infinity, minLat = Infinity, maxLat = -Infinity;
+    let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
     for (const p of pts) {
-      minLng = Math.min(minLng, p.lng); maxLng = Math.max(maxLng, p.lng);
       minLat = Math.min(minLat, p.lat); maxLat = Math.max(maxLat, p.lat);
+      minLng = Math.min(minLng, p.lng); maxLng = Math.max(maxLng, p.lng);
     }
-    const cLat = (minLat + maxLat) / 2;
-    const cLng = (minLng + maxLng) / 2;
+    const cLat = (minLat + maxLat) / 2, cLng = (minLng + maxLng) / 2;
     const kx = Math.cos((cLat * Math.PI) / 180);
-    // projeta em metros locais e centra
-    const proj = pts.map((p) => ({ x: (p.lng - cLng) * kx, y: -(p.lat - cLat) }));
-    let rmax = 1e-9;
-    for (const q of proj) rmax = Math.max(rmax, Math.hypot(q.x, q.y));
-    // rota ocupa ~inradius/1.12 (mesma regra do modelo 3D)
-    const inradius = R * Math.cos(Math.PI / 6);
-    const s = (inradius / 1.2) / rmax;
-    const cx = SIZE / 2, cy = SIZE / 2;
-    const d = proj.map((q, i) => `${i ? "L" : "M"}${(cx + q.x * s).toFixed(1)},${(cy + q.y * s).toFixed(1)}`).join("");
-    return { d, hex: hexPath(cx, cy, R) };
+    // raio da rota em metros e circunraio do hexágono (mesma regra do modelo 3D)
+    let rM = 1;
+    for (const p of pts) {
+      rM = Math.max(rM, Math.hypot((p.lng - cLng) * kx * M_PER_DEG, (p.lat - cLat) * M_PER_DEG));
+    }
+    const RcM = (rM * 1.2) / Math.cos(Math.PI / 6); // circunraio p/ conter a rota c/ margem
+
+    const hex: LatLngExpression[] = [];
+    for (let k = 0; k < 6; k++) {
+      const a = (Math.PI / 180) * (60 * k + 30);
+      const dLat = (RcM * Math.sin(a)) / M_PER_DEG;
+      const dLng = (RcM * Math.cos(a)) / (M_PER_DEG * kx);
+      hex.push([cLat + dLat, cLng + dLng]);
+    }
+    // retângulo grande para escurecer tudo que está fora do hexágono
+    const outer: LatLngExpression[] = [
+      [cLat + 1, cLng - 1], [cLat + 1, cLng + 1], [cLat - 1, cLng + 1], [cLat - 1, cLng - 1],
+    ];
+    const line: LatLngExpression[] = pts.map((p) => [p.lat, p.lng]);
+    const dLatB = (RcM * 1.05) / M_PER_DEG, dLngB = (RcM * 1.05) / (M_PER_DEG * kx);
+    const bounds: LatLngBoundsExpression = [
+      [cLat - dLatB, cLng - dLngB],
+      [cLat + dLatB, cLng + dLngB],
+    ];
+    return { line, hex, outer, center: [cLat, cLng] as LatLngExpression, bounds };
   }, [route]);
 
   return (
-    <div className="absolute inset-0 grid place-items-center p-4">
-      <svg viewBox={`0 0 ${SIZE} ${SIZE}`} className="max-h-full max-w-full">
-        <defs>
-          <clipPath id="hexclip"><path d={hex} /></clipPath>
-        </defs>
-        <path d={hex} fill="#171b26" stroke="#2a3340" strokeWidth={2} />
-        <g clipPath="url(#hexclip)">
-          <path d={d} fill="none" stroke={routeColor} strokeWidth={4} strokeLinejoin="round" strokeLinecap="round" />
-        </g>
-        <path d={hex} fill="none" stroke="#3a4657" strokeWidth={2} />
-      </svg>
-      <span className="absolute bottom-3 text-[11px] text-white/40">
-        Enquadramento da rota · gere o modelo para ver o mapa em 3D
+    <div className="absolute inset-0">
+      <MapContainer center={center} zoom={14} scrollWheelZoom className="h-full w-full" style={{ background: "#0f1420" }}>
+        <TileLayer
+          url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+          attribution='&copy; OpenStreetMap'
+          maxZoom={19}
+        />
+        {/* máscara: escurece fora do hexágono */}
+        <Polygon positions={[outer, hex]} pathOptions={{ color: "transparent", fillColor: "#0b0f17", fillOpacity: 0.55, stroke: false }} />
+        {/* moldura hexagonal */}
+        <Polygon positions={hex} pathOptions={{ color: "#ff8a5c", weight: 2, fill: false }} />
+        {/* rota */}
+        <Polyline positions={line} pathOptions={{ color: routeColor, weight: 4, opacity: 0.95 }} />
+        <FitBounds bounds={bounds} />
+      </MapContainer>
+      <span className="pointer-events-none absolute bottom-2 left-1/2 -translate-x-1/2 z-[1000] rounded bg-black/50 px-2 py-0.5 text-[11px] text-white/70">
+        Enquadramento da rota · gere o modelo para o mapa em 3D
       </span>
     </div>
   );

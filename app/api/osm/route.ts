@@ -31,14 +31,16 @@ export async function POST(req: NextRequest) {
 
   const s = bbox.minLat, w = bbox.minLng, n = bbox.maxLat, e = bbox.maxLng;
   const b = `(${s},${w},${n},${e})`;
+  // Buscamos só o que vira ÁREA (closed way) ou linha de via — evita classificar
+  // errado (ex.: rios como linha viravam polígono e "sujavam" a água).
   const query = `[out:json][timeout:25];
 (
   way["highway"]${b};
   way["natural"="water"]${b};
-  way["waterway"]${b};
-  way["leisure"~"park|garden|pitch|nature_reserve"]${b};
-  way["landuse"~"grass|forest|recreation_ground|meadow|village_green"]${b};
-  way["natural"="wood"]${b};
+  way["water"]${b};
+  way["leisure"~"park|garden|pitch|nature_reserve|golf_course"]${b};
+  way["landuse"~"grass|forest|recreation_ground|meadow|village_green|farmland|cemetery"]${b};
+  way["natural"~"wood|scrub|grassland"]${b};
   way["building"]${b};
 );
 out geom;`;
@@ -81,18 +83,21 @@ out geom;`;
   const buildings: LngLat[][] = [];
   const MAJOR = new Set(["motorway", "trunk", "primary", "secondary", "tertiary"]);
 
+  const isClosed = (c: LngLat[]) =>
+    c.length >= 4 && c[0].lng === c[c.length - 1].lng && c[0].lat === c[c.length - 1].lat;
+
   for (const el of elements) {
     const t = el.tags || {};
     const coords = toCoords(el);
     if (coords.length < 2) continue;
     if (t.highway) {
       roads.push({ coords, major: MAJOR.has(t.highway) });
-    } else if (t.natural === "water" || t.waterway) {
-      water.push(coords);
-    } else if (t.leisure || t.landuse || t.natural === "wood") {
-      green.push(coords);
+    } else if (t.natural === "water" || t.water) {
+      if (isClosed(coords)) water.push(coords);
     } else if (t.building) {
-      buildings.push(coords);
+      if (isClosed(coords)) buildings.push(coords);
+    } else if (t.leisure || t.landuse || t.natural) {
+      if (isClosed(coords)) green.push(coords);
     }
   }
 
