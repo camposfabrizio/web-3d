@@ -1,16 +1,32 @@
 import type { Metadata } from "next";
+import { Montserrat } from "next/font/google";
 import "./globals.css";
+import { StoreProvider } from "@/components/StoreProvider";
+import { Header } from "@/components/Header";
+import { Footer } from "@/components/Footer";
+
+const montserrat = Montserrat({
+  subsets: ["latin"],
+  variable: "--font-montserrat",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
-  title: "Rotas em 3D — troféus personalizados de corrida e bike",
+  title: "Art Space 3D — Catálogo Digital",
   description:
-    "Transforme sua rota do Strava/Garmin em uma peça 3D e receba o troféu impresso em casa. Corridas, trilhas e eventos do litoral catarinense.",
+    "Não apenas imprimimos objetos, materializamos ideias. Presentes, souvenirs, decoração e luminárias impressos em 3D. Ideias ganham forma em 3D.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="pt-BR" className="h-full antialiased">
-      <body className="min-h-full flex flex-col bg-[#0b0f17] text-white">{children}</body>
+    <html lang="pt-BR" className={`${montserrat.variable} h-full antialiased`}>
+      <body className="flex min-h-full flex-col">
+        <StoreProvider>
+          <Header />
+          <main className="flex-1">{children}</main>
+          <Footer />
+        </StoreProvider>
+      </body>
     </html>
   );
 }

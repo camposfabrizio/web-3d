@@ -1,89 +1,159 @@
-import Link from "next/link";
+"use client";
 
-export default function Home() {
+import { useMemo, useState } from "react";
+import { useStore } from "@/components/StoreProvider";
+import { ProductCard } from "@/components/ProductCard";
+import { CubeMark } from "@/components/SmartImage";
+
+export default function CatalogPage() {
+  const { products, categories, hydrated } = useStore();
+  const [activeCat, setActiveCat] = useState<string>("all");
+  const [query, setQuery] = useState("");
+
+  const categoryName = useMemo(() => {
+    const map = new Map(categories.map((c) => [c.id, c.name]));
+    return (id: string) => map.get(id);
+  }, [categories]);
+
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return products
+      .filter((p) => p.active)
+      .filter((p) => (activeCat === "all" ? true : p.categoryId === activeCat))
+      .filter((p) =>
+        q
+          ? p.name.toLowerCase().includes(q) ||
+            p.shortDescription.toLowerCase().includes(q) ||
+            p.description.toLowerCase().includes(q)
+          : true,
+      );
+  }, [products, activeCat, query]);
+
   return (
-    <main className="flex-1">
+    <div>
       {/* Hero */}
-      <section className="max-w-6xl mx-auto px-6 pt-20 pb-16 text-center">
-        <span className="inline-block rounded-full border border-orange-500/40 bg-orange-500/10 px-3 py-1 text-xs font-medium text-orange-300">
-          Feito no litoral catarinense · Navegantes/SC
-        </span>
-        <h1 className="mt-6 text-4xl sm:text-6xl font-bold tracking-tight">
-          Sua rota vira um <span className="text-orange-400">troféu 3D</span>
-        </h1>
-        <p className="mt-5 text-lg text-white/60 max-w-2xl mx-auto">
-          Transforme a corrida, o pedal ou a trilha do seu Strava em uma peça 3D
-          única — com o relevo real do terreno e o seu percurso em destaque.
-          Você personaliza, a gente imprime e envia na sua porta.
-        </p>
-        <div className="mt-8 flex items-center justify-center gap-3">
-          <Link href="/criar"
-            className="rounded-lg bg-orange-500 hover:bg-orange-600 px-6 py-3 font-medium transition">
-            Criar meu troféu
-          </Link>
-          <a href="#como-funciona"
-            className="rounded-lg border border-white/20 hover:bg-white/5 px-6 py-3 font-medium transition">
-            Como funciona
-          </a>
-        </div>
-      </section>
+      <section className="relative overflow-hidden bg-graphite text-ice">
+        <div className="mx-auto grid max-w-6xl items-center gap-8 px-4 py-16 md:grid-cols-[1.4fr_1fr] md:py-24">
+          <div>
+            <p className="mb-4 inline-block rounded-full border border-copper/40 px-3 py-1 text-xs font-semibold uppercase tracking-widest text-copper">
+              Estúdio de design e fabricação digital
+            </p>
+            <h1 className="text-4xl font-bold leading-tight sm:text-5xl">
+              Ideias ganham forma{" "}
+              <span className="text-copper">em 3D.</span>
+            </h1>
+            <p className="mt-5 max-w-lg text-lg text-ice/70">
+              Não apenas imprimimos objetos. Materializamos ideias. Presentes,
+              souvenirs, decoração e luminárias feitos sob demanda — com
+              precisão de engenharia e calor humano.
+            </p>
+            <a
+              href="#catalogo"
+              className="mt-8 inline-flex items-center gap-2 rounded-full bg-copper px-6 py-3 font-semibold text-ice transition-colors hover:bg-copper-dark"
+            >
+              Ver o catálogo
+            </a>
+          </div>
 
-      {/* Como funciona */}
-      <section id="como-funciona" className="max-w-5xl mx-auto px-6 py-16 border-t border-white/10">
-        <h2 className="text-2xl font-semibold text-center mb-10">Como funciona</h2>
-        <div className="grid sm:grid-cols-3 gap-6">
-          <Step n="1" title="Suba seu GPX"
-            desc="Exporte a atividade do Strava, Garmin ou relógio e envie o arquivo GPX." />
-          <Step n="2" title="Personalize em 3D"
-            desc="Veja o modelo girando no navegador, ajuste tamanho, relevo e o estilo (terreno ou mapa urbano)." />
-          <Step n="3" title="Receba impresso"
-            desc="Finalize o pedido e produzimos a peça para chegar pronta na sua casa." />
-        </div>
-      </section>
-
-      {/* Públicos */}
-      <section className="max-w-5xl mx-auto px-6 py-16 border-t border-white/10">
-        <h2 className="text-2xl font-semibold text-center mb-3">Feito para quem se move</h2>
-        <p className="text-center text-white/50 mb-10 max-w-2xl mx-auto">
-          Corrida de rua, trail run, ciclismo e eventos esportivos do litoral —
-          públicos que valorizam a conquista e querem levá-la para a estante.
-        </p>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          {["Corrida de rua", "Trail run", "Ciclismo", "Eventos & assessorias"].map((t) => (
-            <div key={t} className="rounded-xl border border-white/10 bg-white/5 p-5 text-center text-sm font-medium">
-              {t}
+          <div className="hidden justify-center md:flex">
+            <div className="flex h-56 w-56 items-center justify-center rounded-3xl border border-copper/30 bg-copper/10">
+              <CubeMark className="h-28 w-28" />
             </div>
-          ))}
+          </div>
         </div>
       </section>
 
-      {/* Eventos / B2B */}
-      <section className="max-w-4xl mx-auto px-6 py-16 border-t border-white/10 text-center">
-        <h2 className="text-2xl font-semibold mb-3">Organiza um evento esportivo?</h2>
-        <p className="text-white/60 max-w-2xl mx-auto mb-6">
-          Ofereça o troféu 3D da rota como brinde premium ou item de kit para os
-          participantes. Fale com a gente sobre parcerias para corridas, provas de
-          ciclismo e boxes.
-        </p>
-        <a href="mailto:contato@rotasem3d.com.br"
-          className="inline-block rounded-lg border border-white/20 hover:bg-white/5 px-6 py-3 font-medium transition">
-          Falar sobre parceria
-        </a>
-      </section>
+      {/* Catálogo */}
+      <section id="catalogo" className="mx-auto max-w-6xl px-4 py-12">
+        <div className="mb-8 flex flex-col gap-4">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <h2 className="text-2xl font-bold text-chumbo">Catálogo</h2>
+              <p className="text-sm text-chumbo/60">
+                Escolha a peça, personalize e finalize pelo WhatsApp.
+              </p>
+            </div>
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Buscar peça..."
+              className="w-full max-w-xs rounded-full border border-chumbo/15 bg-white px-4 py-2 text-sm outline-none focus:border-copper focus:ring-2 focus:ring-copper/30"
+            />
+          </div>
 
-      <footer className="border-t border-white/10 py-8 text-center text-sm text-white/40">
-        Rotas em 3D · Navegantes/SC · impressão sob demanda
-      </footer>
-    </main>
+          <div className="flex flex-wrap gap-2">
+            <CatPill
+              active={activeCat === "all"}
+              onClick={() => setActiveCat("all")}
+              label="Todos"
+            />
+            {categories.map((c) => (
+              <CatPill
+                key={c.id}
+                active={activeCat === c.id}
+                onClick={() => setActiveCat(c.id)}
+                label={`${c.emoji ? c.emoji + " " : ""}${c.name}`}
+              />
+            ))}
+          </div>
+        </div>
+
+        {!hydrated ? (
+          <GridSkeleton />
+        ) : visible.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-chumbo/20 p-12 text-center text-chumbo/60">
+            Nenhuma peça encontrada para esse filtro.
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-4 sm:gap-6 lg:grid-cols-3 xl:grid-cols-4">
+            {visible.map((p) => (
+              <ProductCard
+                key={p.id}
+                product={p}
+                categoryName={categoryName(p.categoryId)}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
   );
 }
 
-function Step({ n, title, desc }: { n: string; title: string; desc: string }) {
+function CatPill({
+  active,
+  onClick,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+}) {
   return (
-    <div className="rounded-xl border border-white/10 bg-white/5 p-6">
-      <div className="w-9 h-9 rounded-full bg-orange-500 grid place-items-center font-semibold">{n}</div>
-      <h3 className="mt-4 font-semibold">{title}</h3>
-      <p className="mt-2 text-sm text-white/55">{desc}</p>
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
+        active
+          ? "bg-copper text-ice"
+          : "border border-chumbo/15 bg-white text-chumbo hover:border-copper"
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
+
+function GridSkeleton() {
+  return (
+    <div className="grid grid-cols-2 gap-4 sm:gap-6 lg:grid-cols-3 xl:grid-cols-4">
+      {Array.from({ length: 8 }).map((_, i) => (
+        <div
+          key={i}
+          className="aspect-[3/4] animate-pulse rounded-2xl bg-chumbo/5"
+        />
+      ))}
     </div>
   );
 }

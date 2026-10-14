@@ -1,41 +1,47 @@
-# Rotas em 3D — troféus personalizados de rotas esportivas
+# Art Space 3D — Catálogo Digital
 
-Web app onde o cliente sobe o **GPX** de uma corrida/pedal/trilha, vê a rota
-virar uma **peça 3D** no navegador (girar/zoom), personaliza e faz o pedido do
-**impresso** — que chega pronto para produção. Foco em impressão sob demanda no
-litoral catarinense (Navegantes/SC) e parcerias com eventos esportivos.
+Catálogo digital com finalização de pedido via **WhatsApp** e um **painel
+administrativo** para cadastrar peças, definir preços e precificar impressões 3D.
 
-## Estado atual (MVP em construção)
+> _Não apenas imprimimos objetos. Materializamos ideias._
+> Identidade visual conforme o Manual de Marca da Art Space 3D (Laranja Cobre,
+> Cinza Chumbo, Gelo e Grafite · tipografia Montserrat).
 
-Implementado nesta fase:
+## Funcionalidades
 
-- **Landing** PT-BR (`app/page.tsx`) e página do **gerador** (`app/criar`).
-- **Gerador 3D** ponta a ponta, client-side:
-  - Upload e parse de GPX + métricas (distância, tempo, ganho) — `lib/gpx.ts`.
-  - **Modo terreno**: relevo real via *terrain tiles* (Terrarium/AWS) decodificados
-    no servidor — `app/api/elevation` + `lib/geo.ts`. Malha sólida *watertight*
-    (topo + paredes + fundo) pronta para o slicer — `lib/mesh.ts`.
-  - **Modo urbano**: vias, água, áreas verdes e quadras do OpenStreetMap
-    (Overpass) — `app/api/osm` — para rotas planas (litoral), com a rota
-    destacada por cima.
-  - Preview interativo (`components/Viewer3D.tsx`, react-three-fiber) e
-    controles de tamanho, base, exagero vertical e espessura da rota
-    (`components/Generator.tsx`).
-  - Export de **STL binário** (`lib/stl.ts`).
+- **Vitrine / catálogo** (`/`): busca, filtro por categoria, cards com preço e
+  promoção.
+- **Página da peça** (`/produto/[slug]`): fotos, descrição, variações (tamanho,
+  cor, etc.) com ajuste de preço, quantidade e "comprar agora".
+- **Carrinho + checkout** (`/carrinho`): o pedido é montado e enviado pronto
+  pelo **WhatsApp** (link `wa.me`), com nome do cliente, itens, total, forma de
+  entrega (retirar/receber) e observações.
+- **Painel admin** (`/admin`, protegido por PIN):
+  - **Produtos**: cadastrar, editar, ativar/desativar e excluir peças, com
+    imagens (upload ou URL), variações e preço promocional.
+  - **Precificação**: calculadora de custo da peça (filamento, tempo de
+    impressão, máquina, mão de obra, extras e margem) que sugere o preço de
+    venda.
+  - **Categorias**: criar e organizar categorias.
+  - **Configurações**: número de WhatsApp, dados da loja, textos de entrega,
+    chave Pix e PIN de acesso.
+  - **Backup**: exportar/importar o catálogo em JSON e restaurar o exemplo.
 
-### Próximos passos (roadmap)
+## Como os dados são salvos
 
-- Texto 3D em relevo na base (nome do evento/atleta/distância/tempo) — precisa de
-  um asset de fonte (typeface).
-- Contas, persistência e **checkout Pix/cartão** (Mercado Pago) + gravação do
-  pedido/STL.
-- **Painel de produção** (admin) com status novo → produzindo → enviado.
-- Troféu paramétrico para esportes sem GPS (beach tennis, crossfit, Hyrox),
-  portal de evento parceiro e download de STL/plano Pro para makers.
+Para rodar sem backend/custo, o catálogo é persistido no **navegador**
+(`localStorage`). Isso é ideal para um operador único gerenciar a loja a partir
+do próprio dispositivo. Para publicar o catálogo de forma compartilhada entre
+vários clientes/dispositivos, use **Exportar JSON** no painel e evolua para um
+banco de dados (ex.: Vercel KV/Postgres) — a camada de dados está isolada em
+`components/StoreProvider.tsx` e `lib/`, facilitando a troca.
 
-> Observação: em ambientes com egress restrito o Overpass (modo urbano) pode
-> ficar indisponível; o app segue gerando base + rota e exibe um aviso. Em
-> produção (Vercel) as feições do mapa são incluídas normalmente.
+## Configuração essencial
+
+Antes de divulgar a loja, abra **`/admin` → Configurações** e informe o
+**número de WhatsApp** (DDI + DDD + número, só dígitos — ex.: `5547999999999`).
+Sem isso, o checkout fica bloqueado. PIN padrão do admin: `art3d` (troque nas
+configurações).
 
 ## Rodando localmente
 
@@ -44,5 +50,5 @@ npm install
 npm run dev   # http://localhost:3000
 ```
 
-Stack: Next.js 16 (App Router) · React 19 · TypeScript · Tailwind CSS ·
-three.js / react-three-fiber. Deploy alvo: Vercel.
+Stack: Next.js 16 (App Router) · React 19 · TypeScript · Tailwind CSS v4.
+Deploy alvo: Vercel.

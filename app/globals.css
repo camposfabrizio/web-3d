@@ -1,17 +1,35 @@
 @import "tailwindcss";
 
-:root {
-  --background: #0b0f17;
-  --foreground: #ededed;
+/* ===== Art Space 3D — tokens de marca =====
+   Laranja Cobre #D2793F · Cinza Chumbo #3E3A3A
+   Gelo #F4F1EC · Grafite #221F1F · Tipografia: Montserrat */
+@theme {
+  --color-copper: #d2793f;
+  --color-copper-dark: #b9632f;
+  --color-chumbo: #3e3a3a;
+  --color-ice: #f4f1ec;
+  --color-graphite: #221f1f;
+
+  --font-sans: var(--font-montserrat), ui-sans-serif, system-ui, sans-serif;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+:root {
+  --background: var(--color-ice);
+  --foreground: var(--color-chumbo);
+}
+
+html {
+  scroll-behavior: smooth;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: var(--font-sans);
+}
+
+/* Faixa de rolagem discreta na identidade da marca. */
+::selection {
+  background: var(--color-copper);
+  color: var(--color-ice);
 }
